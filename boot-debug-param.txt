@@ -1,0 +1,1 @@
+GRUB_CMDLINE_LINUX_DEFAULT="initcall_debug log_buf_len=10M dyndbg=\"file drivers/base/bus.c +p; file drivers/base/dd.c +p\""
