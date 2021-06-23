@@ -1,0 +1,49 @@
+queue tuning
+============
+
+nic ring buffer:
+# ethtool -g eth0
+
+qdisc:
+# tc qdisc show
+
+socket queue:
+# sysctl -w net.ipv4.tcp_limit_output_bytes=$((1 << 20))
+
+RSS and RPS
+===========
+netirqs=$(cat /proc/interrupts | grep TxRx | awk '{ print $1 }' | sed  's/://g')
+
+cpu=1
+for irq in $netirqs; do
+        #echo $cpu /proc/irq/$irq/smp_affinity_list
+        echo $cpu > /proc/irq/$irq/smp_affinity_list
+
+        cpu=$(($cpu + 4))
+done
+
+cpu=0
+for nic in {0..1}; do
+        for rxq in {0..7}; do
+                rem=$((cpu % 32))
+                cpus=$(printf "%x" $((5 << $rem)))
+
+                for ((quo=$((cpu / 32)); quo > 0; quo--)); do
+                        cpus=$cpus,00000000
+                done
+
+                #printf "0x%x %s\n" $cpus /sys/class/net/slave-$nic/queues/rx-$rxq/rps_cpus
+                printf "%s\n" $cpus > /sys/class/net/slave-$nic/queues/rx-$rxq/rps_cpus
+
+                cpu=$(($cpu + 4))
+        done
+done
+
+tcp
+===
+recv buffer:
+easy
+
+quick ack:
+1 socket option: TCP_QUICKACK
+2 ip route change 10.245.133.0/24 dev public proto kernel scope link src 10.245.133.18 quickack 1
