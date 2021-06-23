@@ -10,10 +10,11 @@ qdisc:
 socket queue:
 # sysctl -w net.ipv4.tcp_limit_output_bytes=$((1 << 20))
 
-RSS and RPS
-===========
+RSS, RPS, and RFS
+=================
 netirqs=$(cat /proc/interrupts | grep TxRx | awk '{ print $1 }' | sed  's/://g')
 
+#RSS:
 cpu=1
 for irq in $netirqs; do
         #echo $cpu /proc/irq/$irq/smp_affinity_list
@@ -22,6 +23,7 @@ for irq in $netirqs; do
         cpu=$(($cpu + 4))
 done
 
+#RPS:
 cpu=0
 for nic in {0..1}; do
         for rxq in {0..7}; do
@@ -38,6 +40,10 @@ for nic in {0..1}; do
                 cpu=$(($cpu + 4))
         done
 done
+
+#RFS:
+net.core.rps_sock_flow_entries = 32768
+cat /sys/class/net/slave-*/queues/rx-*/rps_flow_cnt
 
 tcp
 ===
