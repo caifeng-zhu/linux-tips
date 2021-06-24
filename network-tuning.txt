@@ -1,55 +1,81 @@
-queue tuning
+queue tuning  		# done at the client side
 ============
 
-nic ring buffer:
+NIC ring buffer: 	# use the full capacity of NIC ring buffer
+----------------
 # ethtool -g eth0
+# ethtool -G enp94s0f1np1 2047
 
-qdisc:
-# tc qdisc show
+qdisc: 			# change to pfifo_fast, the server default qdisc.
+------
+# sysctl -w net.core.default_qdisc=pfifo_fast
+# tc qdisc add dev enp94s0f1np1 root pfifo_fast
+# tc qdisc del dev enp94s0f1np1 root	# after delete, the default qdisc is applied
 
-socket queue:
+socket queue:		# make socket queue to hold as least 1M data
+-------------
 # sysctl -w net.ipv4.tcp_limit_output_bytes=$((1 << 20))
 
-RSS, RPS, and RFS
+
+
+
+RSS, RPS, and RFS 	# done at the server side
 =================
-netirqs=$(cat /proc/interrupts | grep TxRx | awk '{ print $1 }' | sed  's/://g')
 
-#RSS:
-cpu=1
-for irq in $netirqs; do
-        #echo $cpu /proc/irq/$irq/smp_affinity_list
-        echo $cpu > /proc/irq/$irq/smp_affinity_list
+RSS:			# optional. the system has a random but right default setting.
+----
+# netirqs=$(cat /proc/interrupts | grep TxRx | awk '{ print $1 }' | sed  's/://g')
+# i=1; cpu=49; 		# choose a starting cpu at NUMA node 1
+# for irq in $netirqs; do echo $((cpu + i * 2)) > /proc/irq/$irq/smp_affinity_list; i=$((i + 2)); done
 
-        cpu=$(($cpu + 4))
-done
 
-#RPS:
-cpu=0
-for nic in {0..1}; do
-        for rxq in {0..7}; do
-                rem=$((cpu % 32))
-                cpus=$(printf "%x" $((5 << $rem)))
+RPS:			# currently not needed
+----
+## cpu=0
+## for nic in {0..1}; do
+##         for rxq in {0..7}; do
+##                 rem=$((cpu % 32))
+##                 cpus=$(printf "%x" $((5 << $rem)))
+## 
+##                 for ((quo=$((cpu / 32)); quo > 0; quo--)); do
+##                         cpus=$cpus,00000000
+##                 done
+## 
+##                 #printf "0x%x %s\n" $cpus /sys/class/net/slave-$nic/queues/rx-$rxq/rps_cpus
+##                 printf "%s\n" $cpus > /sys/class/net/slave-$nic/queues/rx-$rxq/rps_cpus
+## 
+##                 cpu=$(($cpu + 4))
+##         done
+## done
 
-                for ((quo=$((cpu / 32)); quo > 0; quo--)); do
-                        cpus=$cpus,00000000
-                done
+RFS:
+----
+# sysctl -w net.core.rps_sock_flow_entries=32768
+# for f in $(ls /sys/class/net/slave-*/queues/rx-*/rps_flow_cnt); do echo 2048 > $f; done
 
-                #printf "0x%x %s\n" $cpus /sys/class/net/slave-$nic/queues/rx-$rxq/rps_cpus
-                printf "%s\n" $cpus > /sys/class/net/slave-$nic/queues/rx-$rxq/rps_cpus
 
-                cpu=$(($cpu + 4))
-        done
-done
-
-#RFS:
-net.core.rps_sock_flow_entries = 32768
-cat /sys/class/net/slave-*/queues/rx-*/rps_flow_cnt
 
 tcp
 ===
-recv buffer:
-easy
+recv buffer:		# at the server side
+------------
+# sysctl -w net.core.rmem_default=4194304
+# sysctl -w net.ipv4.tcp_rmem='4194304     4194304 4194304'
 
-quick ack:
-1 socket option: TCP_QUICKACK
-2 ip route change 10.245.133.0/24 dev public proto kernel scope link src 10.245.133.18 quickack 1
+send buffer:		# at the client side
+------------
+# sysctl -w net.core.wmem_default=4194304
+# sysctl -w net.ipv4.tcp_wmem='4194304     4194304 4194304'
+
+quick ack:		# make the receiver response as quick as possible
+----------
+# change jetty code by setting socket option: TCP_QUICKACK
+or
+# ip route change 10.245.133.0/24 dev public proto kernel scope link src 10.245.133.18 quickack 1 ssthresh 100
+
+Reference:
+https://www.kernel.org/doc/html/latest/networking/scaling.html
+https://blog.packagecloud.io/eng/2016/06/22/monitoring-tuning-linux-networking-stack-receiving-data/
+https://www.linuxjournal.com/content/queueing-linux-network-stack
+https://www.cdnplanet.com/blog/tune-tcp-initcwnd-for-optimum-performance/
+https://www.cnblogs.com/sammyliu/articles/5085371.html
